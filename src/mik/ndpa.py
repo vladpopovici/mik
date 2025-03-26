@@ -12,7 +12,23 @@ import xml.etree.ElementTree as ET
 from .wsi import WSI
 from wsitk_annot import Annotation, Polygon
 
-def load_NDPA(ndpi: WSI, ndpa: Union[str, Path], force_closed_contours: bool=False) -> Annotation:
+def load_NDPA(ndpi: WSI, ndpa: Union[str, Path], 
+              reference: str = 'center',
+              force_closed_contours: bool=False) -> Annotation:
+    """
+    Read annotation from NDPA file and convert it to level-0 image pixel coordinates.
+
+    Args:
+        ndpi: a whole slide image (WSI) object
+        ndpa: path to NDPA file
+        reference: ('center' or 'corner') whether the coordinates are to be kept 
+            relative to the 'center' of the image (default for Hamamatsu coordinates) 
+            or should be translated to be relative to the upper-left corner of the image
+        force_closed_contours: close the polylines
+
+    Returns:
+        an Annotation object
+    """
     ndpa = Path(ndpa)
     xml_file = ET.parse(ndpa)
     xml_root = xml_file.getroot()
@@ -21,11 +37,19 @@ def load_NDPA(ndpi: WSI, ndpa: Union[str, Path], force_closed_contours: bool=Fal
         x_off = int(ndpi._original_meta['hamamatsu.XOffsetFromSlideCentre'])
         y_off = int(ndpi._original_meta['hamamatsu.YOffsetFromSlideCentre'])
     except KeyError:
-        raise RuntimeError('probably not a Hamamatsu NDPI file')
+        raise RuntimeError('probably not a Hamamatsu NDPA file')
 
+    reference = reference.lower()
+    if reference not in ['center', 'corner']:
+        raise RuntimeError('Unknown reference point')
+    
     x_mpp = float(ndpi.info['mpp_x'])
     y_mpp = float(ndpi.info['mpp_y'])
     dimX0, dimY0 = ndpi.extent(0)
+    half_dimX0, half_dimY0 = int(dimX0 / 2), int(dimY0 / 2)
+
+    x_zero = int(np.floor(x_off / 1000.0 / x_mpp - half_dimX0))
+    y_zero = int(np.floor(y_off / 1000.0 / y_mpp - half_dimY0))
 
     wsi_annot = Annotation(
         name=ndpa.name,
@@ -56,8 +80,8 @@ def load_NDPA(ndpi: WSI, ndpa: Union[str, Path], force_closed_contours: bool=Fal
             x /= 1000.0 * x_mpp        # in pixels, relative to the center
             y /= 1000.0 * y_mpp
 
-            x = int(np.floor(x + dimX0 / 2.0)) # in pixels, relative to UL corner
-            y = int(np.floor(y + dimY0 / 2.0))
+            x = int(np.floor(x + half_dimX0)) # in pixels, relative to UL corner
+            y = int(np.floor(y + half_dimY0))
 
             xy_coords.append([x, y])
 
@@ -70,7 +94,11 @@ def load_NDPA(ndpi: WSI, ndpa: Union[str, Path], force_closed_contours: bool=Fal
             if force_closed_contours:
                 xy_coords.append(xy_coords[0])
 
-        wsi_annot.add_annotation_object(Polygon(xy_coords, name=name), layer='base')
+        pl = Polygon(xy_coords, name=name)
+        if reference == "center":
+            pl.translate(x_zero, y_zero)
+
+        wsi_annot.add_annotation_object(pl, layer='base')
 
     return wsi_annot
 

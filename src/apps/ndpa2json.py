@@ -32,6 +32,9 @@ def main() -> int:
                    required=True)
     p.add_argument("--out", action="store", help="GeoJSON file for storing the results",
                    required=True)
+    p.add_argument("--reference_corner", action="store_true",
+                   help="use upper-left corner as origin for the coordinate system. Default: no (use image center)")
+    
 
     args = p.parse_args()
 
@@ -39,7 +42,9 @@ def main() -> int:
     __description__['input'] = [str(args.wsi)]
     __description__['output'] = [str(args.out)]
 
-    ann = load_NDPA(WSI(args.wsi), args.ndpa, force_closed_contours=True)
+    ann = load_NDPA(WSI(args.wsi), args.ndpa, 
+                    reference="corner" if args.reference_corner else "center",
+                    force_closed_contours=True)
     ann_list = list()
     for a in ann._annots['base']:  # NDPA does not have more layers
         b = a.asGeoJSON()
@@ -48,7 +53,7 @@ def main() -> int:
         ann_list.append(b)
 
     with open(args.out, 'w') as out:
-        gj.dump(ann_list, out, cls=NpJSONEncoder)
+        gj.dump(ann_list, out, cls=NpJSONEncoder, indent=2)
 
     return 0
 
